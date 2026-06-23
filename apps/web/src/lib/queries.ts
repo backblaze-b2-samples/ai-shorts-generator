@@ -11,8 +11,15 @@ import {
   getJob,
   getPreviewUrl,
   getUploadActivity,
+  startJob,
 } from "@/lib/api-client";
-import type { ClipItem, FileMetadata, JobRecord } from "@ai-shorts-generator/shared";
+import type {
+  ClipItem,
+  ClipsStats,
+  FileMetadata,
+  JobCreateResponse,
+  JobRecord,
+} from "@ai-shorts-generator/shared";
 
 // Single source of truth for query keys. Keep these tightly scoped so that
 // invalidating "files" doesn't blow away unrelated caches, and so an IDE
@@ -71,6 +78,72 @@ export function useDeleteFile() {
     // correct — the dashboard re-fetches lazily as components remount.
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.all });
+    },
+  });
+}
+
+// --- AI Shorts pipeline: clips library, stats, and jobs ---
+
+/** Rendered clips under this app's clips/ prefix (most recent first). */
+export function useClips() {
+  return useQuery<ClipItem[], ApiError>({
+    queryKey: qk.clips(),
+    queryFn: getClips,
+  });
+}
+
+/** Shorts dashboard metrics (videos processed, clips generated, storage). */
+export function useClipsStats() {
+  return useQuery<ClipsStats, ApiError>({
+    queryKey: qk.clipsStats(),
+    queryFn: getClipsStats,
+  });
+}
+
+// A job is finished once it reaches one of these states — stop polling then.
+const TERMINAL_JOB_STATUSES: ReadonlySet<JobRecord["status"]> = new Set([
+  "complete",
+  "failed",
+]);
+
+/**
+ * Poll a single job's status. Only fetches while `jobId` is set; refetches
+ * every 2s until the job reaches a terminal state, then stops. Pass
+ * `enabled: false` to pause (e.g. before a job has been started).
+ */
+export function useJob(jobId: string | undefined, options?: { enabled?: boolean }) {
+  const enabled = (options?.enabled ?? true) && !!jobId;
+  return useQuery<JobRecord, ApiError>({
+    queryKey: qk.job(jobId ?? ""),
+    queryFn: () => getJob(jobId as string),
+    enabled,
+    // Poll while running; once terminal, `false` stops the interval.
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      if (status && TERMINAL_JOB_STATUSES.has(status)) return false;
+      return 2_000;
+    },
+  });
+}
+
+/**
+ * Start a shorts job (uploads the source video + enqueues processing).
+ * On success, seed the job cache and invalidate the clips library/stats so
+ * they refresh as the pipeline produces output.
+ */
+export function useStartJob() {
+  const qc = useQueryClient();
+  return useMutation<
+    JobCreateResponse,
+    ApiError,
+    { file: File; clipCount: number; aspect: string; onProgress?: (p: number) => void }
+  >({
+    mutationFn: ({ file, clipCount, aspect, onProgress }) =>
+      startJob(file, { clipCount, aspect }, onProgress),
+    onSuccess: (job) => {
+      qc.invalidateQueries({ queryKey: qk.job(job.id) });
+      qc.invalidateQueries({ queryKey: qk.clips() });
+      qc.invalidateQueries({ queryKey: qk.clipsStats() });
     },
   });
 }

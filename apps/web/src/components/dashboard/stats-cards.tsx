@@ -1,16 +1,22 @@
 "use client";
 
-import { FileIcon, HardDrive, Upload, Download } from "lucide-react";
+import { Clapperboard, Film, HardDrive, Timer } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/error-state";
-import { useFileStats } from "@/lib/queries";
+import { useClipsStats } from "@/lib/queries";
+
+function formatDuration(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.round(seconds % 60);
+  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+}
 
 export function StatsCards() {
-  const { data: stats, isLoading, error, refetch } = useFileStats();
+  const { data: stats, isLoading, error, refetch } = useClipsStats();
 
-  // Surface fetch failures inline rather than rendering "0 files / 0 B" —
-  // that lies to the user about the bucket state when really the API is
+  // Surface fetch failures inline rather than rendering "0 clips / 0 B" —
+  // that lies to the user about pipeline state when really the API is
   // just unreachable.
   if (error) {
     return (
@@ -23,10 +29,14 @@ export function StatsCards() {
   }
 
   const cards = [
-    { title: "Total Files", value: stats?.total_files ?? 0, icon: FileIcon },
-    { title: "Storage Used", value: stats?.total_size_human ?? "0 B", icon: HardDrive },
-    { title: "Uploads Today", value: stats?.uploads_today ?? 0, icon: Upload },
-    { title: "Total Downloads", value: stats?.total_downloads ?? 0, icon: Download },
+    { title: "Videos Processed", value: stats?.videos_processed ?? 0, icon: Film },
+    { title: "Clips Generated", value: stats?.clips_generated ?? 0, icon: Clapperboard },
+    {
+      title: "Total Clip Length",
+      value: formatDuration(stats?.total_clip_seconds ?? 0),
+      icon: Timer,
+    },
+    { title: "Storage Used", value: stats?.storage_human ?? "0 B", icon: HardDrive },
   ];
 
   return (

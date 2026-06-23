@@ -1,7 +1,7 @@
 <!-- last_verified: 2026-06-23 -->
 # AI Shorts Generator
 
-Turn one long video into a batch of share-ready vertical shorts. Upload a podcast, lecture, or webinar; the app transcribes it, uses an LLM to pick the most engaging moments, and renders **9:16 clips with burned-in captions** — every source video, transcript, caption track, and rendered clip persisted on **[Backblaze B2](https://www.backblaze.com/sign-up/ai-cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-oss-start)** cloud storage. It's an open-source take on the "Opus Clip" workflow: upload once, generate many clips, download forever.
+Turn one long video into a batch of share-ready vertical shorts. Upload a podcast, lecture, or webinar; the app transcribes it, uses an LLM to pick the most engaging moments, and renders **9:16 clips with burned-in captions** — every source video, transcript, caption track, and rendered clip persisted on **[Backblaze B2](https://www.backblaze.com/sign-up/ai-cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-ai-shorts-generator)** cloud storage. It's an open-source take on the "Opus Clip" workflow: upload once, generate many clips, download forever.
 
 **What you get out of the box:**
 - Upload a long video and watch it flow through transcribe → moment-scoring → clip render as a tracked job
@@ -31,7 +31,7 @@ This is a textbook B2 workload: source videos are large, every clip and caption 
 
 ## Quick Start
 
-You need: Node.js >= 20, pnpm >= 9, Python >= 3.11, `ffmpeg` on your PATH, a free **[Backblaze B2 account](https://www.backblaze.com/sign-up/ai-cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-oss-start)**, and an OpenAI API key.
+You need: Node.js >= 20, pnpm >= 9, Python >= 3.11, `ffmpeg` on your PATH, a free **[Backblaze B2 account](https://www.backblaze.com/sign-up/ai-cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-ai-shorts-generator)**, and an OpenAI API key.
 
 **1. Clone and install**
 
@@ -56,7 +56,7 @@ cd ../..
 cp .env.example .env
 ```
 
-Open `.env` and fill it in. From the [Backblaze B2 dashboard](https://secure.backblaze.com/b2_buckets.htm?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-oss-start):
+Open `.env` and fill it in. From the [Backblaze B2 dashboard](https://secure.backblaze.com/b2_buckets.htm?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-ai-shorts-generator):
 
 1. **Create a bucket** → put its name in `B2_BUCKET_NAME`, and set `B2_REGION` to the bucket's region (e.g. `us-west-004`). The S3 endpoint is derived from the region automatically.
 2. **Create an application key** with `Read and Write` permission. B2 shows two values:
