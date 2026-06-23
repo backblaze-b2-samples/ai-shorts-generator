@@ -156,6 +156,7 @@ export function GenerateShortsForm() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="9:16">9:16 (vertical)</SelectItem>
+                <SelectItem value="4:5">4:5 (portrait)</SelectItem>
                 <SelectItem value="1:1">1:1 (square)</SelectItem>
                 <SelectItem value="16:9">16:9 (landscape)</SelectItem>
               </SelectContent>
