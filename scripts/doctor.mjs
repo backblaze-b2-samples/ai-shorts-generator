@@ -142,6 +142,30 @@ function checkVenv() {
   }
 }
 
+// True if `ffmpeg -filters` lists the `subtitles` filter (libass). Slim builds
+// (the current Homebrew default) omit it, which silently breaks caption
+// rendering — so the render service prefers a *capable* ffmpeg over a present
+// one. Mirror that check here so the gap is surfaced before a job fails.
+function ffmpegHasSubtitles(bin) {
+  const out = tryExec(`"${bin}" -hide_banner -filters`);
+  if (!out) return false;
+  return out.split("\n").some((line) => line.trim().split(/\s+/)[1] === "subtitles");
+}
+
+function checkFfmpegCaptions() {
+  // The app falls back to imageio-ffmpeg's bundled binary (full libass build)
+  // when the system ffmpeg can't render captions, so this is only a warning:
+  // it explains why a system ffmpeg won't be used, not a blocker.
+  const system = tryExec("command -v ffmpeg");
+  if (system && !ffmpegHasSubtitles(system)) {
+    warn(
+      `system ffmpeg (${system}) lacks the 'subtitles' filter (built without libass)`,
+      "ok — the app will use the bundled imageio-ffmpeg binary to burn captions. " +
+        "To use the system one instead, install a full build (e.g. `brew install ffmpeg-full`).",
+    );
+  }
+}
+
 function parseEnvFile(path) {
   // Minimal .env parser — enough for KEY=value lines, ignores comments
   // and quoted strings. We don't need the full dotenv grammar here.
@@ -229,6 +253,7 @@ async function main() {
   checkPython();
   checkVenv();
   checkEnv();
+  checkFfmpegCaptions();
   await Promise.all(PORTS_TO_CHECK.map(checkPort));
 
   if (failures.length === 0 && warnings.length === 0) {

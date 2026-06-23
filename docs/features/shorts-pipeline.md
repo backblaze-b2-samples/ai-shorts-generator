@@ -20,7 +20,7 @@ captions: upload → transcribe → score the best moments (LLM) → render → 
 - `services/api/app/runtime/clips.py` — clips library + stats routes
 - `services/api/app/service/jobs.py` — `create_job()`, `run_job()` pipeline orchestration, B2-as-datastore status persistence
 - `services/api/app/service/clips.py` — `list_clips()`, `get_shorts_stats()`, presigned URL helpers (clips/ prefix only)
-- `services/api/app/service/render.py` — `extract_audio()`, `detect`/render helpers, `build_srt()`, `render_clip()` (ffmpeg)
+- `services/api/app/service/render.py` — `extract_audio()`, `detect`/render helpers, `build_srt()`, `render_clip()` (ffmpeg); `ffmpeg_bin()` selects a *capable* ffmpeg — the system one only when it has the `subtitles` filter (libass), else the bundled imageio-ffmpeg binary
 - `services/api/app/repo/` — `transcribe_audio()`, `detect_moments()` (Genblaze/OpenAI), B2 `upload_file`/`upload_path`/`get_json`/`put_json`/`download_file`
 
 ## Canonical Files
@@ -65,6 +65,7 @@ captions: upload → transcribe → score the best moments (LLM) → render → 
 - Empty file → API returns 400
 - Job id not found → `GET /jobs/{id}` returns 404; UI shows an error card
 - Pipeline step throws (transcription/detection/render failure) → job persisted as `failed` with `error` set; UI shows the error message, polling stops
+- System ffmpeg present but built without libass (no `subtitles` filter, e.g. the slim Homebrew default) → `ffmpeg_bin()` skips it and uses the bundled imageio-ffmpeg binary so captions still burn in; `pnpm doctor` warns about the slim system build
 - Clip key outside the `clips/` prefix or containing path-traversal → preview/download return 400 (`ClipKeyError`)
 - No clips yet → `/clips` shows an EmptyState with a "Generate shorts" call to action
 

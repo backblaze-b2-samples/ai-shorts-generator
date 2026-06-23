@@ -73,12 +73,14 @@ def _transcribe_openai(audio_path: str) -> list[TranscriptSegment]:
             timestamp_granularities=["segment"],
         )
     out: list[TranscriptSegment] = []
+    # openai>=1.0 returns typed `TranscriptionSegment` Pydantic objects whose
+    # fields are attributes (not dict keys) — mirror the local path's access.
     for seg in getattr(result, "segments", []) or []:
         out.append(
             {
-                "start": float(seg["start"]),
-                "end": float(seg["end"]),
-                "text": str(seg["text"]).strip(),
+                "start": float(seg.start),
+                "end": float(seg.end),
+                "text": str(seg.text).strip(),
             }
         )
     logger.info("Remote transcription complete: %d segments", len(out))

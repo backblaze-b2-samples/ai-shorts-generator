@@ -2,8 +2,11 @@
 
 Lives in the service layer because it orchestrates a local tool over files
 that repo/ has already fetched from / will persist to B2. Prefers a system
-`ffmpeg`/`ffprobe`; falls back to the bundled `imageio-ffmpeg` binary so the
-demo runs with no system install.
+`ffmpeg`/`ffprobe` *only when it can actually do the job* — burning captions
+needs the `subtitles` filter (libass), which slim ffmpeg builds (e.g. the
+current Homebrew default) omit. When the system ffmpeg lacks `subtitles` we
+fall back to the bundled `imageio-ffmpeg` binary, which ships a full libass
+build — so caption rendering works out-of-the-box with no system install.
 
 The arg-builder functions are split out from the subprocess calls so they can
 be unit-tested without spawning ffmpeg (see tests/test_render.py).
@@ -14,8 +17,13 @@ import logging
 import shutil
 import subprocess
 from dataclasses import dataclass
+from functools import cache
 
 logger = logging.getLogger(__name__)
+
+# The filter the headline capability (burned-in captions) depends on. A
+# system ffmpeg without libass won't list it, so it can't be used for clips.
+_REQUIRED_FILTER = "subtitles"
 
 # Aspect ratio -> output WxH. 9:16 vertical is the default for shorts.
 _ASPECT_DIMENSIONS = {
@@ -26,14 +34,53 @@ _ASPECT_DIMENSIONS = {
 }
 
 
-def ffmpeg_bin() -> str:
-    """System ffmpeg if present, else the bundled imageio-ffmpeg binary."""
-    system = shutil.which("ffmpeg")
-    if system:
-        return system
+def _bundled_ffmpeg() -> str:
     import imageio_ffmpeg
 
     return imageio_ffmpeg.get_ffmpeg_exe()
+
+
+@cache
+def _supports_filter(binary: str, name: str) -> bool:
+    """True if `binary` lists ffmpeg filter `name` (e.g. `subtitles`/libass).
+
+    Cached per (binary, filter) so the probe runs once per process. A failed
+    probe (binary unrunnable, etc.) is treated as "unsupported" so callers
+    fall back rather than blow up."""
+    try:
+        proc = subprocess.run(
+            [binary, "-hide_banner", "-filters"],
+            capture_output=True, text=True,
+        )
+    except OSError:
+        return False
+    if proc.returncode != 0:
+        return False
+    # `-filters` lines look like: " T.. subtitles  V->V  Render text ...".
+    return any(
+        line.split()[1:2] == [name]
+        for line in proc.stdout.splitlines()
+        if line.strip()
+    )
+
+
+def ffmpeg_bin() -> str:
+    """A capable ffmpeg: the system one only when it supports the filters we
+    need (notably `subtitles`/libass), else the bundled imageio-ffmpeg binary.
+
+    Selection is by capability, not mere presence: slim system builds (the
+    current Homebrew default) lack libass and silently break caption rendering,
+    so we must not pick them just because they're on PATH."""
+    system = shutil.which("ffmpeg")
+    if system and _supports_filter(system, _REQUIRED_FILTER):
+        return system
+    if system:
+        logger.warning(
+            "system ffmpeg (%s) lacks the '%s' filter (no libass); using the "
+            "bundled imageio-ffmpeg binary so captions render",
+            system, _REQUIRED_FILTER,
+        )
+    return _bundled_ffmpeg()
 
 
 def ffprobe_bin() -> str | None:

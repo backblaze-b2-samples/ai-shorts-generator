@@ -60,7 +60,51 @@ def test_unknown_aspect_falls_back_to_9_16():
 def test_ffmpeg_bin_resolves_to_a_path(monkeypatch):
     # With no system ffmpeg, it must fall back to the bundled binary.
     monkeypatch.setattr(render.shutil, "which", lambda _name: None)
+    render._supports_filter.cache_clear()
     assert render.ffmpeg_bin()  # non-empty path string
+
+
+def test_ffmpeg_bin_uses_system_when_subtitles_supported(monkeypatch):
+    # A system ffmpeg that supports `subtitles` (libass) is preferred as-is.
+    monkeypatch.setattr(render.shutil, "which", lambda _name: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(render, "_supports_filter", lambda _bin, _name: True)
+    assert render.ffmpeg_bin() == "/usr/bin/ffmpeg"
+
+
+def test_ffmpeg_bin_falls_back_when_subtitles_unsupported(monkeypatch):
+    # A slim system ffmpeg (no libass/subtitles) must NOT be chosen; we fall
+    # back to the bundled imageio-ffmpeg binary so captions still render.
+    monkeypatch.setattr(render.shutil, "which", lambda _name: "/opt/homebrew/bin/ffmpeg")
+    monkeypatch.setattr(render, "_supports_filter", lambda _bin, _name: False)
+    monkeypatch.setattr(render, "_bundled_ffmpeg", lambda: "/bundled/ffmpeg")
+    assert render.ffmpeg_bin() == "/bundled/ffmpeg"
+
+
+def test_supports_filter_parses_filters_output(monkeypatch):
+    # Parse a representative `ffmpeg -filters` table without spawning ffmpeg.
+    class _Proc:
+        returncode = 0
+        stdout = (
+            "Filters:\n"
+            " T.C drawtext          V->V       Draw text ...\n"
+            " ... subtitles         V->V       Render text subtitles ...\n"
+            " ... scale             V->V       Scale the input video ...\n"
+        )
+
+    monkeypatch.setattr(render.subprocess, "run", lambda *a, **k: _Proc())
+    render._supports_filter.cache_clear()
+    assert render._supports_filter("/any/ffmpeg", "subtitles") is True
+    assert render._supports_filter("/any/ffmpeg", "nope") is False
+
+
+def test_supports_filter_false_on_probe_failure(monkeypatch):
+    # If the binary can't be run, treat the filter as unsupported (no crash).
+    def _boom(*_a, **_k):
+        raise OSError("not executable")
+
+    monkeypatch.setattr(render.subprocess, "run", _boom)
+    render._supports_filter.cache_clear()
+    assert render._supports_filter("/missing/ffmpeg", "subtitles") is False
 
 
 def test_run_raises_on_nonzero_exit(monkeypatch):
