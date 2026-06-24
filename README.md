@@ -17,10 +17,6 @@ Turn one long video into a batch of share-ready vertical shorts. Upload a podcas
 
 ![Clips library showing vertical shorts with burned-in captions, grouped by source video](docs/images/clips.png)
 
-**Clip preview** — click any short to play it inline in a 9:16 player without leaving the library.
-
-![A clip opened into its inline vertical video player within the clips library](docs/images/clip-detail.png)
-
 **What you get out of the box:**
 - Upload a long video and watch it flow through transcribe → moment-scoring → clip render as a tracked job
 - AI moment detection + caption generation via the **Genblaze SDK** (`gpt-4o-mini`, one OpenAI key)
