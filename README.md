@@ -3,6 +3,24 @@
 
 Turn one long video into a batch of share-ready vertical shorts. Upload a podcast, lecture, or webinar; the app transcribes it, uses an LLM to pick the most engaging moments, and renders **9:16 clips with burned-in captions** — every source video, transcript, caption track, and rendered clip persisted on **[Backblaze B2](https://www.backblaze.com/sign-up/ai-cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-ai-shorts-generator)** cloud storage. It's an open-source take on the "Opus Clip" workflow: upload once, generate many clips, download forever.
 
+## What it looks like
+
+**Dashboard** — videos processed, clips generated, total clip length, and B2 storage used, with a 7-day upload-activity chart and a recent-uploads table.
+
+![Dashboard with shorts pipeline metrics, a 7-day activity chart, and recent uploads](docs/images/dashboard.png)
+
+**Upload** — drop a long video to generate AI shorts (choose clip count and aspect ratio), or upload any file straight to your B2 bucket.
+
+![Upload page with the generate-shorts form and a direct file-upload dropzone](docs/images/upload.png)
+
+**Clips** — every rendered 9:16 short grouped into a folder per source video, each with a first-frame poster and a download button.
+
+![Clips library showing vertical shorts with burned-in captions, grouped by source video](docs/images/clips.png)
+
+**Clip preview** — click any short to play it inline in a 9:16 player without leaving the library.
+
+![A clip opened into its inline vertical video player within the clips library](docs/images/clip-detail.png)
+
 **What you get out of the box:**
 - Upload a long video and watch it flow through transcribe → moment-scoring → clip render as a tracked job
 - AI moment detection + caption generation via the **Genblaze SDK** (`gpt-4o-mini`, one OpenAI key)
