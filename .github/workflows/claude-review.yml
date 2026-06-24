@@ -1,0 +1,54 @@
+name: CI Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# AI review (code review, B2 standards, security) is handled by a local agent
+# run against this repo. Once Claude Managed Agents is available, this will
+# move to a hosted agent triggered by the PR webhook — no credentials needed
+# in this workflow. See backblaze-labs/demand-side-ai#195.
+
+jobs:
+  ci-checks:
+    name: CI Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        working-directory: services/api
+        run: |
+          pip install uv
+          uv pip install --system -r requirements.txt
+
+      - name: Run Python tests
+        working-directory: services/api
+        run: |
+          if [ -d "tests" ] && find tests \( -name "test_*.py" -o -name "*_test.py" \) | grep -q .; then
+            uv pip install --system pytest
+            python -m pytest tests/
+          else
+            echo "No tests found — skipping. See backblaze-labs/demand-side-ai#195 for test scaffolding work."
+          fi
+
+      - name: Set up Node
+        if: ${{ hashFiles('apps/web/package.json') != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install frontend dependencies
+        if: ${{ hashFiles('apps/web/package.json') != '' }}
+        working-directory: apps/web
+        run: npm install
+
+      - name: Typecheck frontend
+        if: ${{ hashFiles('apps/web/package.json') != '' }}
+        working-directory: apps/web
+        run: npm run typecheck
