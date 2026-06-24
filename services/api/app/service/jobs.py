@@ -102,9 +102,15 @@ def run_job(job_id: str) -> None:
         _set(job, "transcribing", 25, "Transcribing audio (Whisper)")
         segments = transcribe_audio(wav_path)
         put_json(f"{TRANSCRIPTS_PREFIX}{job_id}.json", {"segments": segments})
+        if not segments:
+            raise RuntimeError(
+                "No speech detected in this video — there's nothing to turn into "
+                "shorts. Check that it has a spoken audio track in the expected "
+                "language (the default transcription model is base.en / English)."
+            )
 
         _set(job, "detecting", 50, "Finding the best moments (AI)")
-        raw_moments = detect_moments(segments, job.clip_count)
+        raw_moments = _detect_moments_with_retry(segments, job, src_path)
         job.moments = [Moment(**m) for m in raw_moments]
         put_json(f"{MOMENTS_PREFIX}{job_id}.json", {"moments": raw_moments})
         _save(job)
@@ -120,6 +126,35 @@ def run_job(job_id: str) -> None:
         _set(job, "failed", job.progress, f"Failed: {exc}")
     finally:
         _cleanup_dir(workdir)
+
+
+def _detect_moments_with_retry(
+    segments: list[dict], job: JobRecord, src_path: str
+) -> list[dict]:
+    """Pick moments, with one relaxed retry, and never return an empty list.
+
+    The transcript has speech (the caller already guarded the empty case), so a
+    zero-moment result means the model was too strict — we retry once with a
+    looser brief. If even that yields nothing, raise so the job fails with an
+    actionable reason instead of silently "completing" with no clips. Moments
+    are bounded to the source duration (best-effort; None when ffprobe absent).
+    """
+    duration = render.probe_duration(src_path)
+    moments = detect_moments(segments, job.clip_count, max_end=duration)
+    if not moments:
+        logger.warning(
+            "job %s: strict pass found no moments; retrying with relaxed brief",
+            job.id,
+        )
+        moments = detect_moments(
+            segments, job.clip_count, relaxed=True, max_end=duration
+        )
+    if not moments:
+        raise RuntimeError(
+            "The AI found no clip-worthy moments in this video. Try a longer "
+            "video, or one with clearer, more self-contained spoken segments."
+        )
+    return moments
 
 
 def _render_and_upload(job: JobRecord, src_path: str, workdir: str) -> list[ClipResult]:

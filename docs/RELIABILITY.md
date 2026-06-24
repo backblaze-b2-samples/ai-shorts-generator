@@ -1,4 +1,4 @@
-<!-- last_verified: 2026-03-06 -->
+<!-- last_verified: 2026-06-24 -->
 # Reliability
 
 Reliability expectations and practices for this project.
@@ -13,6 +13,7 @@ Reliability expectations and practices for this project.
 - HTTP handlers return structured error responses with appropriate status codes
 - External service failures (B2) are caught and surfaced as 500/503 responses
 - No unhandled exceptions leak stack traces to clients
+- Shorts pipeline outcome contract: a job never reports `complete` with zero clips. An empty transcript (no speech) and an empty moment result both fail the job with an actionable `error` message instead of silently "succeeding". The pipeline makes one relaxed retry of moment detection before giving up, and bounds moment timestamps to the source duration so model hallucinations can't slip through to the renderer (see [Shorts Pipeline](features/shorts-pipeline.md) edge cases).
 
 ## Logging
 

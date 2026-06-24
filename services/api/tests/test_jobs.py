@@ -45,10 +45,11 @@ def test_run_job_happy_path(monkeypatch):
     monkeypatch.setattr(
         jobs, "transcribe_audio", lambda path: [{"start": 0, "end": 30, "text": "hi"}]
     )
+    monkeypatch.setattr(jobs.render, "probe_duration", lambda src: None)
     monkeypatch.setattr(
         jobs,
         "detect_moments",
-        lambda segs, n: [
+        lambda segs, n=None, **kw: [
             {"start": 1.0, "end": 21.0, "title": "Clip", "hook": "", "caption_lines": ["x"]}
         ],
     )
@@ -83,10 +84,11 @@ def test_thumbnail_failure_is_non_fatal(monkeypatch):
     monkeypatch.setattr(
         jobs, "transcribe_audio", lambda path: [{"start": 0, "end": 30, "text": "hi"}]
     )
+    monkeypatch.setattr(jobs.render, "probe_duration", lambda src: None)
     monkeypatch.setattr(
         jobs,
         "detect_moments",
-        lambda segs, n: [
+        lambda segs, n=None, **kw: [
             {"start": 1.0, "end": 21.0, "title": "Clip", "hook": "", "caption_lines": ["x"]}
         ],
     )
@@ -124,6 +126,93 @@ def test_run_job_records_failure(monkeypatch):
     failed = jobs.get_job(job.id)
     assert failed.status == "failed"
     assert "B2 download failed" in (failed.error or "")
+
+
+def _stub_pipeline_io(monkeypatch):
+    """Stub the I/O steps (B2, ffmpeg, probe) so a run_job test can focus on the
+    transcribe -> detect path. Each test sets transcribe_audio/detect_moments."""
+    monkeypatch.setattr(jobs, "download_file", lambda key, dest: None)
+    monkeypatch.setattr(jobs.render, "extract_audio", lambda src, wav: None)
+    monkeypatch.setattr(jobs.render, "probe_duration", lambda src: None)
+    monkeypatch.setattr(jobs, "upload_path", lambda local, key, ct: None)
+    monkeypatch.setattr(jobs.render, "extract_thumbnail", lambda clip, out: None)
+
+    def _fake_render_clip(src, spec, aspect):
+        with open(spec.out_path, "wb") as f:
+            f.write(b"fake-mp4-bytes")
+
+    monkeypatch.setattr(jobs.render, "render_clip", _fake_render_clip)
+
+
+def test_run_job_fails_on_empty_transcript(monkeypatch):
+    """A silent / speech-free video must fail loudly, not 'complete' with 0 clips."""
+    _patch_b2(monkeypatch)
+    _stub_pipeline_io(monkeypatch)
+    monkeypatch.setattr(jobs, "transcribe_audio", lambda path: [])
+
+    detected = []
+    monkeypatch.setattr(jobs, "detect_moments", lambda *a, **k: detected.append(1) or [])
+
+    job = jobs.create_job("sources/abc/v.mp4", "v.mp4", clip_count=1, aspect="9:16")
+    jobs.run_job(job.id)
+
+    done = jobs.get_job(job.id)
+    assert done.status == "failed"
+    assert "No speech" in (done.error or "")
+    assert detected == []  # detection is never reached without a transcript
+
+
+def test_run_job_fails_when_no_moments_after_retry(monkeypatch):
+    """Speech present but the model finds nothing twice -> fail with a reason,
+    and the relaxed retry must actually have been attempted."""
+    _patch_b2(monkeypatch)
+    _stub_pipeline_io(monkeypatch)
+    monkeypatch.setattr(
+        jobs, "transcribe_audio", lambda path: [{"start": 0, "end": 30, "text": "hi"}]
+    )
+
+    relaxed_flags = []
+
+    def _empty(segs, n=None, **kw):
+        relaxed_flags.append(kw.get("relaxed", False))
+        return []
+
+    monkeypatch.setattr(jobs, "detect_moments", _empty)
+
+    job = jobs.create_job("sources/abc/v.mp4", "v.mp4", clip_count=1, aspect="9:16")
+    jobs.run_job(job.id)
+
+    done = jobs.get_job(job.id)
+    assert done.status == "failed"
+    assert "no clip-worthy moments" in (done.error or "")
+    assert relaxed_flags == [False, True]  # strict pass, then one relaxed retry
+
+
+def test_run_job_recovers_via_relaxed_retry(monkeypatch):
+    """Zero moments on the strict pass but the relaxed retry finds one -> the job
+    completes with a clip instead of failing."""
+    _patch_b2(monkeypatch)
+    _stub_pipeline_io(monkeypatch)
+    monkeypatch.setattr(
+        jobs, "transcribe_audio", lambda path: [{"start": 0, "end": 30, "text": "hi"}]
+    )
+
+    def _detect(segs, n=None, *, relaxed=False, **kw):
+        if not relaxed:
+            return []
+        return [
+            {"start": 1.0, "end": 21.0, "title": "Clip", "hook": "", "caption_lines": ["x"]}
+        ]
+
+    monkeypatch.setattr(jobs, "detect_moments", _detect)
+
+    job = jobs.create_job("sources/abc/v.mp4", "v.mp4", clip_count=1, aspect="9:16")
+    jobs.run_job(job.id)
+
+    done = jobs.get_job(job.id)
+    assert done.status == "complete"
+    assert len(done.clips) == 1
+    assert done.error is None
 
 
 def test_get_job_missing_returns_none(monkeypatch):

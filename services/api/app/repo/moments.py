@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 # inside gpt-4o-mini's context, but we trim defensively for very long inputs.
 _MAX_TRANSCRIPT_CHARS = 48_000
 
+# A clamped moment shorter than this (after bounding to the source duration) is
+# too small to be a usable short, so it's dropped rather than rendered.
+_MIN_CLIP_SECONDS = 1.0
+
 _SYSTEM = (
     "You are a short-form video editor. Given a timestamped transcript of a "
     "long video, pick the most engaging, self-contained moments to cut into "
@@ -30,6 +34,18 @@ _SYSTEM = (
     "a natural sentence boundary. Write a punchy title, a one-line hook, and "
     "2-4 short caption lines (each <= 8 words) that will be burned onto the "
     "clip. Respond with STRICT JSON only."
+)
+
+# Looser brief used for a single retry when the strict pass returns nothing —
+# trades polish for recall so a video with any speech still yields a clip.
+_SYSTEM_RELAXED = (
+    "You are a short-form video editor. Given a timestamped transcript of a "
+    "long video, pick ANY usable moments to cut into vertical shorts — rough "
+    "ones are fine. Each moment should be roughly 10-90 seconds long; sentence "
+    "boundaries are a nice-to-have, not a requirement. If the transcript has "
+    "any speech at all, you MUST return at least one moment. Write a punchy "
+    "title, a one-line hook, and 2-4 short caption lines (each <= 8 words) that "
+    "will be burned onto the clip. Respond with STRICT JSON only."
 )
 
 
@@ -45,8 +61,14 @@ def _build_prompt(segments: list[dict], clip_count: int) -> str:
     )
 
 
-def _coerce(payload: dict) -> list[dict]:
-    """Normalize and validate the model's JSON into clean moment dicts."""
+def _coerce(payload: dict, max_end: float | None = None) -> list[dict]:
+    """Normalize and validate the model's JSON into clean moment dicts.
+
+    When `max_end` (the source duration in seconds) is given, moments that start
+    at or past the end of the video are dropped and an overshooting `end` is
+    clamped to the duration — guarding against model-hallucinated timestamps
+    that would otherwise fail (or silently truncate) at the render step.
+    """
     moments: list[dict] = []
     for m in payload.get("moments", []):
         try:
@@ -56,6 +78,12 @@ def _coerce(payload: dict) -> list[dict]:
             continue
         if end <= start:
             continue
+        if max_end is not None:
+            if start >= max_end:
+                continue
+            end = min(end, max_end)
+            if end - start < _MIN_CLIP_SECONDS:
+                continue
         caption_lines = [str(c) for c in m.get("caption_lines", []) if str(c).strip()]
         moments.append(
             {
@@ -73,9 +101,16 @@ def detect_moments(
     segments: list[dict],
     clip_count: int | None = None,
     *,
+    relaxed: bool = False,
+    max_end: float | None = None,
     client: Any = None,
 ) -> list[dict]:
     """Score engaging moments + write captions via Genblaze's OpenAI text helper.
+
+    `relaxed` swaps in a looser brief (wider duration band, sentence boundaries
+    optional) for a single retry when the strict first pass returns nothing.
+    `max_end` is the source duration in seconds; when given, moments are bounded
+    to it (see `_coerce`).
 
     `client` is an OpenAI-client escape hatch forwarded to `genblaze_openai.chat`
     — used by the no-network signature-guard test to assert the call is
@@ -93,11 +128,15 @@ def detect_moments(
         )
 
     prompt = _build_prompt(segments, count)
-    logger.info("Detecting moments via Genblaze/OpenAI model=%s", settings.shorts_model)
+    logger.info(
+        "Detecting moments via Genblaze/OpenAI model=%s (relaxed=%s)",
+        settings.shorts_model,
+        relaxed,
+    )
     response = chat(
         model=settings.shorts_model,
         prompt=prompt,
-        system=_SYSTEM,
+        system=_SYSTEM_RELAXED if relaxed else _SYSTEM,
         response_format={"type": "json_object"},
         temperature=0.4,
         max_tokens=2000,
@@ -109,7 +148,7 @@ def detect_moments(
     except (json.JSONDecodeError, TypeError) as e:
         raise RuntimeError(f"Moment model returned non-JSON output: {e}") from e
 
-    moments = _coerce(payload)
+    moments = _coerce(payload, max_end=max_end)
     logger.info(
         "Detected %d moments (tokens_in=%s tokens_out=%s cost_usd=%s)",
         len(moments),

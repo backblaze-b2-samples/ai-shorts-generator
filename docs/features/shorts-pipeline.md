@@ -20,7 +20,7 @@ captions: upload → transcribe → score the best moments (LLM) → render → 
 - `services/api/app/runtime/clips.py` — clips library + stats routes
 - `services/api/app/service/jobs.py` — `create_job()`, `run_job()` pipeline orchestration, B2-as-datastore status persistence
 - `services/api/app/service/clips.py` — `list_clips()`, `get_shorts_stats()`, presigned URL helpers (clips/ prefix only)
-- `services/api/app/service/render.py` — `extract_audio()`, `detect`/render helpers, `build_srt()`, `render_clip()`, `extract_thumbnail()` (first-frame poster JPG); `ffmpeg_bin()` selects a *capable* ffmpeg — the system one only when it has the `subtitles` filter (libass), else the bundled imageio-ffmpeg binary
+- `services/api/app/service/render.py` — `extract_audio()`, `detect`/render helpers, `build_srt()`, `render_clip()`, `extract_thumbnail()` (first-frame poster JPG), `probe_duration()` (best-effort source length used to bound moment timestamps); `ffmpeg_bin()` selects a *capable* ffmpeg — the system one only when it has the `subtitles` filter (libass), else the bundled imageio-ffmpeg binary
 - `services/api/app/repo/` — `transcribe_audio()`, `detect_moments()` (Genblaze/OpenAI), B2 `upload_file`/`upload_path`/`get_json`/`put_json`/`download_file`
 
 ## Canonical Files
@@ -56,6 +56,7 @@ captions: upload → transcribe → score the best moments (LLM) → render → 
 - API sanitizes the filename, uploads the source to `sources/<uuid>/`, creates the job record (`queued`), enqueues `run_job` as a background task, returns `{ id, status }`
 - `useJob(id)` polls `GET /jobs/{id}` every 2s; UI shows the stage label + `progress`
 - `run_job` pipeline: download source → extract audio → transcribe (Whisper, `transcribing`, 10–25%) → detect best moments via LLM (`detecting`, 50%) → render each clip with burned-in captions, extract its first-frame poster, and upload both to `clips/<id>/` + `thumbnails/<id>/` (`rendering`, 65–95%) → mark `complete` (100%)
+- Zero-clip guards (a job must never `complete` with no clips): if transcription returns no speech segments, the job fails immediately with a "No speech detected" message; moment detection runs through `_detect_moments_with_retry()`, which bounds moments to the probed source duration and, when the strict first pass returns nothing, retries `detect_moments(relaxed=True)` once with a looser brief — if that still yields nothing the job fails with a "no clip-worthy moments" message
 - On completion, `useJob` stops polling (terminal status), the progress card links to `/clips`
 - `/clips` lists rendered clips via `GET /clips`, grouped into one collapsible folder per source video (labeled with the source filename + date + clip count); each card shows its poster up front and lazily fetches a streamable preview URL for inline playback plus a separate attachment URL for download
 - The dashboard `useClipsStats()` shows videos processed, clips generated, total clip length, and storage used
@@ -66,6 +67,9 @@ captions: upload → transcribe → score the best moments (LLM) → render → 
 - Empty file → API returns 400
 - Job id not found → `GET /jobs/{id}` returns 404; UI shows an error card
 - Pipeline step throws (transcription/detection/render failure) → job persisted as `failed` with `error` set; UI shows the error message, polling stops
+- No speech in the source (silent / music-only, or non-English audio against the default English `base.en` model) → transcription returns no segments → job `failed` with a "No speech detected…" message; it never silently `complete`s with zero clips
+- LLM returns no usable moments → `run_job` retries `detect_moments` once with a relaxed brief (wider 10–90s band, sentence boundaries optional, "return at least one moment"); if it still returns nothing → job `failed` with a "no clip-worthy moments…" message. The configured clip count is a *target* sent to the model, not a guarantee — but the pipeline guarantees at least one clip or an explanatory failure
+- Moment timestamps out of range → moments are bounded to the source duration (best-effort `render.probe_duration`, skipped when system `ffprobe` is absent): a moment starting at/after the end is dropped, an overshooting `end` is clamped to the duration, and a resulting span under 1s (`_MIN_CLIP_SECONDS`) is dropped
 - System ffmpeg present but built without libass (no `subtitles` filter, e.g. the slim Homebrew default) → `ffmpeg_bin()` skips it and uses the bundled imageio-ffmpeg binary so captions still burn in; `pnpm doctor` warns about the slim system build
 - Clip key outside the `clips/` prefix or containing path-traversal → preview/download return 400 (`ClipKeyError`)
 - Clip rendered before posters existed (or whose poster JPG is missing) → `thumbnail_url` is `null` and the card falls back to the "Play preview" button
@@ -82,7 +86,7 @@ captions: upload → transcribe → score the best moments (LLM) → render → 
 
 ## Verification
 - Test files: `services/api/tests/` (backend job/clip routes + `tests/test_structure.py` for boundaries)
-- Required cases: start job happy path, unsupported type rejected, oversized/empty rejected, job-not-found 404, clip key validation, clips list + stats
+- Required cases: start job happy path, unsupported type rejected, oversized/empty rejected, job-not-found 404, clip key validation, clips list + stats, empty transcript → job failed, zero moments after relaxed retry → job failed, zero moments recovered by relaxed retry → job complete, moment timestamps bounded to source duration
 - Quick verify command: `pnpm test:api`
 - Full verify command: `pnpm lint && pnpm build && pnpm lint:api && pnpm test:api && pnpm check:structure`
 - Pass criteria: lint clean, Next build/type-check succeeds, all pytest tests green, no ruff violations

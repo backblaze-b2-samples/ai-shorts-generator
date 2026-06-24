@@ -110,6 +110,49 @@ def test_detect_moments_drops_invalid_spans():
     assert [m["title"] for m in out] == ["good"]
 
 
+def test_detect_moments_returns_empty_when_model_finds_nothing():
+    """A model that returns no moments yields []. The caller (run_job) turns
+    that into a failed job — it must not be smoothed over here."""
+    recorder: dict = {}
+    out = moments.detect_moments(
+        _SEGMENTS, clip_count=3, client=_FakeClient(recorder, json.dumps({"moments": []}))
+    )
+    assert out == []
+
+
+def test_detect_moments_bounds_moments_to_source_duration():
+    """With max_end set, a moment past the end is dropped and an overshooting
+    end is clamped to the duration."""
+    recorder: dict = {}
+    canned = json.dumps(
+        {
+            "moments": [
+                {"start": 5.0, "end": 100.0, "title": "clamped"},   # end -> 50
+                {"start": 200.0, "end": 210.0, "title": "past-end"},  # dropped
+                {"start": 1.0, "end": 9.0, "title": "ok"},
+            ]
+        }
+    )
+    out = moments.detect_moments(
+        _SEGMENTS, clip_count=3, max_end=50.0, client=_FakeClient(recorder, canned)
+    )
+    assert [m["title"] for m in out] == ["clamped", "ok"]
+    assert out[0]["end"] == 50.0  # overshooting end clamped to the source duration
+
+
+def test_detect_moments_relaxed_sends_loosened_system_prompt():
+    """The relaxed retry swaps in the looser brief (not the strict 20-60s /
+    sentence-boundary one), so a second pass is likelier to return something."""
+    recorder: dict = {}
+    canned = json.dumps({"moments": [{"start": 1.0, "end": 12.0, "title": "x"}]})
+    moments.detect_moments(
+        _SEGMENTS, clip_count=1, relaxed=True, client=_FakeClient(recorder, canned)
+    )
+    sent = json.dumps(recorder["payload"].get("messages", []))
+    assert "rough ones are fine" in sent
+    assert "must be 20-60 seconds" not in sent
+
+
 def test_detect_moments_uses_chat_helper_not_bare_openai():
     """The Genblaze-routing mandate: the SDK's chat() helper is imported and
     used (not the bare `openai` package) inside repo/moments.py."""
