@@ -19,6 +19,10 @@ export function ClipCard({ clip }: ClipCardProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  // Presigned poster URLs are short-lived; if one has expired by the time the
+  // <img> loads, fall back to the plain "Play preview" button.
+  const [posterError, setPosterError] = useState(false);
+  const hasPoster = !!clip.thumbnail_url && !posterError;
 
   // Presigned preview URLs are short-lived, so we fetch on demand (when the
   // user clicks the poster) rather than for every card on page load.
@@ -65,18 +69,29 @@ export function ClipCard({ clip }: ClipCardProps) {
             type="button"
             onClick={loadPreview}
             disabled={loadingPreview}
-            className="flex h-full w-full flex-col items-center justify-center gap-2 text-muted-foreground transition-colors hover:bg-accent/40"
+            className="group/poster relative flex h-full w-full flex-col items-center justify-center gap-2 text-muted-foreground transition-colors hover:bg-accent/40"
           >
+            {hasPoster && (
+              // Plain <img>, not next/image: the src is a presigned B2 URL with
+              // a query string that next/image can't optimize/whitelist.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={clip.thumbnail_url ?? undefined}
+                alt={clip.filename}
+                onError={() => setPosterError(true)}
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+            )}
             {loadingPreview ? (
-              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              <Loader2 className="relative h-6 w-6 animate-spin text-primary" />
             ) : (
               <>
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-foreground/80 text-background">
+                <div className="relative flex h-12 w-12 items-center justify-center rounded-full bg-foreground/80 text-background transition-transform group-hover/poster:scale-110">
                   <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current" aria-hidden>
                     <path d="M8 5v14l11-7z" />
                   </svg>
                 </div>
-                <span className="text-xs font-medium">Play preview</span>
+                {!hasPoster && <span className="text-xs font-medium">Play preview</span>}
               </>
             )}
           </button>

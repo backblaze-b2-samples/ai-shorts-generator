@@ -32,6 +32,16 @@ def test_clip_args_no_subtitles_filter_without_srt():
     assert "subtitles=" not in " ".join(args)
 
 
+def test_thumbnail_args_extracts_first_frame():
+    args = render.build_thumbnail_args("/tmp/clip.mp4", "/tmp/clip.jpg")
+    joined = " ".join(args)
+    # One frame, decent JPG quality, seeking to the very start.
+    assert "-frames:v 1" in joined
+    assert "-q:v 3" in joined
+    assert "-ss 0" in joined
+    assert joined.endswith("/tmp/clip.jpg")
+
+
 def test_extract_audio_args_mono_16k_wav():
     args = render.build_extract_audio_args("/tmp/src.mp4", "/tmp/a.wav")
     joined = " ".join(args)

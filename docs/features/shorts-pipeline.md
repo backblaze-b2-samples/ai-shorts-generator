@@ -1,4 +1,4 @@
-<!-- last_verified: 2026-06-23 -->
+<!-- last_verified: 2026-06-24 -->
 # Feature: Shorts Pipeline
 
 ## Purpose
@@ -13,14 +13,14 @@ captions: upload → transcribe → score the best moments (LLM) → render → 
 ## Core Functions
 - `apps/web/src/components/upload/generate-shorts-form.tsx` — pick a video + clip count/aspect, start a job
 - `apps/web/src/components/upload/job-progress.tsx` — polls job status, renders the stage/progress, links to clips on completion
-- `apps/web/src/components/clips/clip-library.tsx` + `clip-card.tsx` — grid of rendered clips with inline `<video>` preview + download
+- `apps/web/src/components/clips/clip-library.tsx` + `clip-folder.tsx` + `clip-card.tsx` — clips grouped into collapsible per-source-video folders; each card shows a server-generated first-frame poster (falling back to a "Play preview" button) with inline `<video>` preview + download
 - `apps/web/src/lib/api-client.ts` — `startJob()`, `getJob()`, `getClips()`, `getClipsStats()`, `getClipPreviewUrl()`, `getClipDownloadUrl()`
 - `apps/web/src/lib/queries.ts` — `useStartJob()`, `useJob()` (polling), `useClips()`, `useClipsStats()`
 - `services/api/app/runtime/jobs.py` — `POST /jobs` handler (uploads source, enqueues `run_job`), `GET /jobs/{id}`
 - `services/api/app/runtime/clips.py` — clips library + stats routes
 - `services/api/app/service/jobs.py` — `create_job()`, `run_job()` pipeline orchestration, B2-as-datastore status persistence
 - `services/api/app/service/clips.py` — `list_clips()`, `get_shorts_stats()`, presigned URL helpers (clips/ prefix only)
-- `services/api/app/service/render.py` — `extract_audio()`, `detect`/render helpers, `build_srt()`, `render_clip()` (ffmpeg); `ffmpeg_bin()` selects a *capable* ffmpeg — the system one only when it has the `subtitles` filter (libass), else the bundled imageio-ffmpeg binary
+- `services/api/app/service/render.py` — `extract_audio()`, `detect`/render helpers, `build_srt()`, `render_clip()`, `extract_thumbnail()` (first-frame poster JPG); `ffmpeg_bin()` selects a *capable* ffmpeg — the system one only when it has the `subtitles` filter (libass), else the bundled imageio-ffmpeg binary
 - `services/api/app/repo/` — `transcribe_audio()`, `detect_moments()` (Genblaze/OpenAI), B2 `upload_file`/`upload_path`/`get_json`/`put_json`/`download_file`
 
 ## Canonical Files
@@ -38,7 +38,7 @@ captions: upload → transcribe → score the best moments (LLM) → render → 
 - `GET /jobs/{id}` → `JobRecord` `{ id, status, source_key, source_filename, clip_count, aspect, created_at, updated_at, progress, message, moments[], clips[], error }`
   - `status`: `queued | transcribing | detecting | rendering | complete | failed`
   - `clips[]`: `ClipResult` `{ key, title, duration_seconds, size_bytes }`
-- `GET /clips` → `ClipItem[]` `{ key, filename, job_id, size_bytes, size_human, uploaded_at }` (most recent first)
+- `GET /clips` → `ClipItem[]` `{ key, filename, job_id, size_bytes, size_human, uploaded_at, thumbnail_url, source_filename, job_created_at }` (most recent first; `thumbnail_url` is a presigned poster URL or `null`; `source_filename`/`job_created_at` come from the job record and label the clip's folder)
 - `GET /clips/stats` → `ClipsStats` `{ videos_processed, clips_generated, total_clip_seconds, storage_bytes, storage_human }`
 - `GET /clips/{key}/preview` → `{ url }` (inline/streamable presigned URL for `<video>`)
 - `GET /clips/{key}/download` → `{ url }` (attachment presigned URL)
@@ -47,6 +47,7 @@ captions: upload → transcribe → score the best moments (LLM) → render → 
   - job record at `jobs/<id>.json` (rewritten after each stage transition)
   - transcript at `transcripts/<id>.json`, moments at `moments/<id>.json`
   - rendered clips at `clips/<id>/clip_N.mp4`, caption tracks at `captions/<id>/clip_N.srt`
+  - first-frame poster JPGs at `thumbnails/<id>/clip_N.jpg` (one per clip; a future clip/job deletion must remove this prefix alongside `clips/<id>/`)
 
 ## Flow
 - User drops a video and picks clip count + aspect on `/upload`, then clicks Generate shorts
@@ -54,9 +55,9 @@ captions: upload → transcribe → score the best moments (LLM) → render → 
 - API validates content type (415 if unsupported) and size (413 if > 1 GiB), rejects empty files (400)
 - API sanitizes the filename, uploads the source to `sources/<uuid>/`, creates the job record (`queued`), enqueues `run_job` as a background task, returns `{ id, status }`
 - `useJob(id)` polls `GET /jobs/{id}` every 2s; UI shows the stage label + `progress`
-- `run_job` pipeline: download source → extract audio → transcribe (Whisper, `transcribing`, 10–25%) → detect best moments via LLM (`detecting`, 50%) → render each clip with burned-in captions and upload to `clips/<id>/` (`rendering`, 65–95%) → mark `complete` (100%)
+- `run_job` pipeline: download source → extract audio → transcribe (Whisper, `transcribing`, 10–25%) → detect best moments via LLM (`detecting`, 50%) → render each clip with burned-in captions, extract its first-frame poster, and upload both to `clips/<id>/` + `thumbnails/<id>/` (`rendering`, 65–95%) → mark `complete` (100%)
 - On completion, `useJob` stops polling (terminal status), the progress card links to `/clips`
-- `/clips` lists rendered clips via `GET /clips`; each card lazily fetches a streamable preview URL for inline playback and a separate attachment URL for download
+- `/clips` lists rendered clips via `GET /clips`, grouped into one collapsible folder per source video (labeled with the source filename + date + clip count); each card shows its poster up front and lazily fetches a streamable preview URL for inline playback plus a separate attachment URL for download
 - The dashboard `useClipsStats()` shows videos processed, clips generated, total clip length, and storage used
 
 ## Edge Cases
@@ -67,6 +68,9 @@ captions: upload → transcribe → score the best moments (LLM) → render → 
 - Pipeline step throws (transcription/detection/render failure) → job persisted as `failed` with `error` set; UI shows the error message, polling stops
 - System ffmpeg present but built without libass (no `subtitles` filter, e.g. the slim Homebrew default) → `ffmpeg_bin()` skips it and uses the bundled imageio-ffmpeg binary so captions still burn in; `pnpm doctor` warns about the slim system build
 - Clip key outside the `clips/` prefix or containing path-traversal → preview/download return 400 (`ClipKeyError`)
+- Clip rendered before posters existed (or whose poster JPG is missing) → `thumbnail_url` is `null` and the card falls back to the "Play preview" button
+- Poster extraction fails during a job (`extract_thumbnail` raises) → logged as a warning and swallowed; the clip and the job still complete normally
+- Poster presigned URL expires while the page is open → the `<img>` `onError` handler swaps the card back to the "Play preview" button
 - No clips yet → `/clips` shows an EmptyState with a "Generate shorts" call to action
 
 ## UX States

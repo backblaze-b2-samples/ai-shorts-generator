@@ -111,6 +111,11 @@ export interface ClipItem {
   size_bytes: number;
   size_human: string;
   uploaded_at: string;
+  // Enrichment for the Clips page: a presigned first-frame poster URL, plus the
+  // source video's name/date used to group clips into per-video folders.
+  thumbnail_url: string | null;
+  source_filename: string | null;
+  job_created_at: string | null;
 }
 
 export interface ClipsStats {

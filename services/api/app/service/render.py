@@ -142,6 +142,22 @@ def build_clip_args(src_path: str, spec: ClipSpec, aspect: str) -> list[str]:
     ]
 
 
+def build_thumbnail_args(clip_path: str, out_jpg: str) -> list[str]:
+    """ffmpeg args to grab the rendered clip's first frame as a JPG poster.
+
+    Extracts from the *rendered* clip (not the source) so the poster matches
+    the cropped/captioned output the viewer sees. `-ss 0` before `-i` is a fast
+    keyframe seek (frame 0 is always a keyframe, so it's exact), and the clip is
+    already at output dimensions — no reframing filter needed.
+    """
+    return [
+        ffmpeg_bin(), "-y",
+        "-ss", "0", "-i", clip_path,
+        "-frames:v", "1", "-q:v", "3",
+        out_jpg,
+    ]
+
+
 def _fmt_ts(seconds: float) -> str:
     """Seconds -> SRT timestamp HH:MM:SS,mmm."""
     if seconds < 0:
@@ -179,6 +195,10 @@ def extract_audio(src_path: str, out_wav: str) -> None:
 
 def render_clip(src_path: str, spec: ClipSpec, aspect: str) -> None:
     _run(build_clip_args(src_path, spec, aspect))
+
+
+def extract_thumbnail(clip_path: str, out_jpg: str) -> None:
+    _run(build_thumbnail_args(clip_path, out_jpg))
 
 
 def probe_duration(src_path: str) -> float | None:

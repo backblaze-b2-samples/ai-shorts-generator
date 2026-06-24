@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 SOURCES_PREFIX = "sources/"
 CLIPS_PREFIX = "clips/"
 CAPTIONS_PREFIX = "captions/"
+THUMBNAILS_PREFIX = "thumbnails/"
 JOBS_PREFIX = "jobs/"
 TRANSCRIPTS_PREFIX = "transcripts/"
 MOMENTS_PREFIX = "moments/"
@@ -140,6 +141,7 @@ def _render_and_upload(job: JobRecord, src_path: str, workdir: str) -> list[Clip
         )
         clip_key = f"{CLIPS_PREFIX}{job.id}/clip_{i}.mp4"
         upload_path(out_path, clip_key, "video/mp4")
+        _make_thumbnail(job.id, i, out_path, workdir)
         if srt_path:
             cap_key = f"{CAPTIONS_PREFIX}{job.id}/clip_{i}.srt"
             upload_path(srt_path, cap_key, "text/plain")
@@ -154,6 +156,18 @@ def _render_and_upload(job: JobRecord, src_path: str, workdir: str) -> list[Clip
         job.progress = 65 + int(30 * (i + 1) / total)
         _save(job)
     return clips
+
+
+def _make_thumbnail(job_id: str, i: int, clip_path: str, workdir: str) -> None:
+    """Extract + upload a first-frame poster for one clip. Non-fatal: a failure
+    here is logged and swallowed so the clip (and the job) still ship."""
+    try:
+        thumb_path = os.path.join(workdir, f"clip_{i}.jpg")
+        render.extract_thumbnail(clip_path, thumb_path)
+        thumb_key = f"{THUMBNAILS_PREFIX}{job_id}/clip_{i}.jpg"
+        upload_path(thumb_path, thumb_key, "image/jpeg")
+    except Exception as exc:  # poster is best-effort — never fail the job over it
+        logger.warning("thumbnail failed for clip %d of job %s: %s", i, job_id, exc)
 
 
 def _cleanup_dir(path: str) -> None:

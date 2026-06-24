@@ -12,6 +12,12 @@ class ClipItem(BaseModel):
     size_bytes: int
     size_human: str
     uploaded_at: datetime
+    # Enrichment for the Clips page (all optional so old data degrades cleanly):
+    # a presigned first-frame poster URL, and the source video's name/date so
+    # clips can be grouped into per-video folders.
+    thumbnail_url: str | None = None
+    source_filename: str | None = None
+    job_created_at: datetime | None = None
 
 
 class ClipsStats(BaseModel):

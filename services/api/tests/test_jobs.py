@@ -59,6 +59,8 @@ def test_run_job_happy_path(monkeypatch):
             f.write(b"fake-mp4-bytes")
 
     monkeypatch.setattr(jobs.render, "render_clip", _fake_render_clip)
+    # Poster extraction would also touch ffmpeg — stub it out.
+    monkeypatch.setattr(jobs.render, "extract_thumbnail", lambda clip, out: None)
     monkeypatch.setattr(jobs, "upload_path", lambda local, key, ct: None)
 
     jobs.run_job(job.id)
@@ -68,6 +70,44 @@ def test_run_job_happy_path(monkeypatch):
     assert done.progress == 100
     assert len(done.clips) == 1
     assert done.clips[0].key == f"clips/{job.id}/clip_0.mp4"
+    assert done.error is None
+
+
+def test_thumbnail_failure_is_non_fatal(monkeypatch):
+    """A poster-extraction failure must never abort the clip or the job."""
+    _patch_b2(monkeypatch)
+    job = jobs.create_job("sources/abc/v.mp4", "v.mp4", clip_count=1, aspect="9:16")
+
+    monkeypatch.setattr(jobs, "download_file", lambda key, dest: None)
+    monkeypatch.setattr(jobs.render, "extract_audio", lambda src, wav: None)
+    monkeypatch.setattr(
+        jobs, "transcribe_audio", lambda path: [{"start": 0, "end": 30, "text": "hi"}]
+    )
+    monkeypatch.setattr(
+        jobs,
+        "detect_moments",
+        lambda segs, n: [
+            {"start": 1.0, "end": 21.0, "title": "Clip", "hook": "", "caption_lines": ["x"]}
+        ],
+    )
+
+    def _fake_render_clip(src, spec, aspect):
+        with open(spec.out_path, "wb") as f:
+            f.write(b"fake-mp4-bytes")
+
+    monkeypatch.setattr(jobs.render, "render_clip", _fake_render_clip)
+
+    def _boom_thumb(clip, out):
+        raise RuntimeError("ffmpeg thumbnail blew up")
+
+    monkeypatch.setattr(jobs.render, "extract_thumbnail", _boom_thumb)
+    monkeypatch.setattr(jobs, "upload_path", lambda local, key, ct: None)
+
+    jobs.run_job(job.id)
+
+    done = jobs.get_job(job.id)
+    assert done.status == "complete"
+    assert len(done.clips) == 1
     assert done.error is None
 
 

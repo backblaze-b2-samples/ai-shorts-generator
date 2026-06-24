@@ -12,7 +12,13 @@ from app.repo import (
     get_presigned_url,
     list_keys,
 )
-from app.service.jobs import CLIPS_PREFIX, JOBS_PREFIX, SOURCES_PREFIX
+from app.service.jobs import (
+    CLIPS_PREFIX,
+    JOBS_PREFIX,
+    SOURCES_PREFIX,
+    THUMBNAILS_PREFIX,
+    _job_key,
+)
 from app.types import ClipItem, ClipsStats
 from app.types.formatting import humanize_bytes
 
@@ -39,21 +45,51 @@ def _job_id_for(key: str) -> str:
     return m.group(1) if m else ""
 
 
+def _thumbnail_url_for(key: str, available: set[str]) -> str | None:
+    """Presigned poster URL for a clip, or None when no thumbnail exists.
+
+    `clips/<job>/clip_N.mp4` -> `thumbnails/<job>/clip_N.jpg`. Only presign keys
+    that actually exist (so the browser never gets a URL that 404s), and never
+    let one bad key break the whole listing."""
+    thumb_key = f"{THUMBNAILS_PREFIX}{key[len(CLIPS_PREFIX):-len('.mp4')]}.jpg"
+    if thumb_key not in available:
+        return None
+    try:
+        return get_inline_presigned_url(thumb_key)
+    except RuntimeError:
+        return None
+
+
 def list_clips() -> list[ClipItem]:
-    """List every rendered short under this app's clips/ prefix."""
+    """List every rendered short under this app's clips/ prefix.
+
+    Each clip is enriched with a first-frame poster URL (when one exists) and
+    its source video's name/date, read once per job from jobs/<id>.json so the
+    Clips page can group clips into per-video folders.
+    """
+    thumb_keys = {o["key"] for o in list_keys(THUMBNAILS_PREFIX)}
+    job_cache: dict[str, dict | None] = {}
+
     items: list[ClipItem] = []
     for obj in list_keys(CLIPS_PREFIX):
         key = obj["key"]
         if not key.endswith(".mp4"):
             continue
+        job_id = _job_id_for(key)
+        if job_id not in job_cache:
+            job_cache[job_id] = get_json(_job_key(job_id)) if job_id else None
+        record = job_cache[job_id] or {}
         items.append(
             ClipItem(
                 key=key,
                 filename=key.rsplit("/", 1)[-1],
-                job_id=_job_id_for(key),
+                job_id=job_id,
                 size_bytes=obj["size"],
                 size_human=humanize_bytes(obj["size"]),
                 uploaded_at=obj["last_modified"],
+                thumbnail_url=_thumbnail_url_for(key, thumb_keys),
+                source_filename=record.get("source_filename"),
+                job_created_at=record.get("created_at"),
             )
         )
     items.sort(key=lambda c: c.uploaded_at, reverse=True)
@@ -76,7 +112,12 @@ def get_shorts_stats() -> ClipsStats:
     """Dashboard metrics derived entirely from this app's own prefixes."""
     sources = list_keys(SOURCES_PREFIX)
     clips = [o for o in list_keys(CLIPS_PREFIX) if o["key"].endswith(".mp4")]
-    storage = sum(o["size"] for o in sources) + sum(o["size"] for o in clips)
+    thumbnails = list_keys(THUMBNAILS_PREFIX)
+    storage = (
+        sum(o["size"] for o in sources)
+        + sum(o["size"] for o in clips)
+        + sum(o["size"] for o in thumbnails)
+    )
 
     # Total clip seconds comes from the durable job records (jobs/<id>.json),
     # the authoritative source — clip files carry no duration metadata.
