@@ -4,6 +4,9 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
+permissions:
+  contents: read
+
 # AI review (code review, B2 standards, security) is handled by a local agent
 # run against this repo. Once Claude Managed Agents is available, this will
 # move to a hosted agent triggered by the PR webhook — no credentials needed
