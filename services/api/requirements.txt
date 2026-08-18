@@ -11,8 +11,8 @@ PyPDF2>=3.0.0
 
 # AI shorts pipeline
 faster-whisper>=1.0.0          # local, keyless transcription (default)
-genblaze-core>=0.3.2,<0.4      # Genblaze SDK core (provider orchestration)
-genblaze-openai>=0.3.0,<0.4    # OpenAI provider — moment scoring + captioning
+genblaze-core>=0.3.8,<0.4      # Genblaze SDK core (provider orchestration)
+genblaze-openai>=0.3.4,<0.4    # OpenAI provider — moment scoring + captioning
 imageio-ffmpeg>=0.5.1          # bundled ffmpeg fallback (no system install needed)
 
 # Dev / quality

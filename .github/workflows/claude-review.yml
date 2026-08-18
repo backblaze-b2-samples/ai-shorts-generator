@@ -45,10 +45,11 @@ jobs:
 
       - name: Install frontend dependencies
         if: ${{ hashFiles('apps/web/package.json') != '' }}
-        working-directory: apps/web
-        run: npm install
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.24.0 --activate
+          pnpm install --frozen-lockfile
 
       - name: Typecheck frontend
         if: ${{ hashFiles('apps/web/package.json') != '' }}
-        working-directory: apps/web
-        run: npm run typecheck
+        run: pnpm --filter @ai-shorts-generator/web typecheck
