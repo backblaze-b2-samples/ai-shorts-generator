@@ -1,4 +1,4 @@
-<!-- last_verified: 2026-05-21 -->
+<!-- last_verified: 2026-08-18 -->
 # Dev Workflows
 
 Engineering workflows for this repo.
@@ -61,6 +61,7 @@ Engineering workflows for this repo.
 - Backend lint: `pnpm lint:api`
 - Full suite: `pnpm typecheck && pnpm lint && pnpm lint:api && pnpm test:api && pnpm check:structure`
 - E2E: `pnpm test:e2e` (run `pnpm --filter @ai-shorts-generator/web exec playwright install chromium` once first)
+- CI frontend install/typecheck uses pnpm from the workspace root: `pnpm install --frozen-lockfile` then `pnpm --filter @ai-shorts-generator/web typecheck`
 
 ### When to run
 - After behavior change: run relevant subset

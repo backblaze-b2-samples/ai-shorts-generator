@@ -46,12 +46,16 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Set up pnpm
+        if: ${{ hashFiles('apps/web/package.json') != '' }}
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
       - name: Install frontend dependencies
         if: ${{ hashFiles('apps/web/package.json') != '' }}
-        working-directory: apps/web
-        run: npm install
+        run: pnpm install --frozen-lockfile
 
       - name: Typecheck frontend
         if: ${{ hashFiles('apps/web/package.json') != '' }}
-        working-directory: apps/web
-        run: npm run typecheck
+        run: pnpm --filter @ai-shorts-generator/web typecheck
