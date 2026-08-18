@@ -50,7 +50,7 @@ jobs:
         if: ${{ hashFiles('apps/web/package.json') != '' }}
         uses: pnpm/action-setup@v4
         with:
-          version: 9.15.9
+          version: 10.24.0
 
       - name: Install frontend dependencies
         if: ${{ hashFiles('apps/web/package.json') != '' }}
