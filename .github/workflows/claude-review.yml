@@ -48,9 +48,7 @@ jobs:
 
       - name: Set up pnpm
         if: ${{ hashFiles('apps/web/package.json') != '' }}
-        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-        with:
-          version: 10.24.0
+        run: npm install --global pnpm@10.24.0
 
       - name: Install frontend dependencies
         if: ${{ hashFiles('apps/web/package.json') != '' }}
